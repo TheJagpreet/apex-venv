@@ -95,6 +95,14 @@ type errorResponse struct {
 	Error string `json:"error"`
 }
 
+// --- Constants ---
+
+const (
+	maxRequestBodySize = 1 << 20 // 1 MB
+	readHeaderTimeout  = 10 * time.Second
+	shutdownTimeout    = 10 * time.Second
+)
+
 // --- Helpers ---
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
@@ -110,11 +118,11 @@ func writeError(w http.ResponseWriter, status int, msg string) {
 }
 
 func readJSON(r *http.Request, v any) error {
-	body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20)) // 1 MB limit
+	defer r.Body.Close()
+	body, err := io.ReadAll(io.LimitReader(r.Body, maxRequestBodySize))
 	if err != nil {
 		return fmt.Errorf("failed to read request body: %w", err)
 	}
-	defer r.Body.Close()
 	if len(body) == 0 {
 		return fmt.Errorf("request body is empty")
 	}
@@ -499,7 +507,7 @@ func main() {
 	srv := &http.Server{
 		Addr:              ":" + port,
 		Handler:           handler,
-		ReadHeaderTimeout: 10 * time.Second,
+		ReadHeaderTimeout: readHeaderTimeout,
 	}
 
 	// Graceful shutdown
@@ -509,7 +517,7 @@ func main() {
 		<-sigCh
 
 		log.Println("Shutting down server...")
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 		defer cancel()
 		if err := srv.Shutdown(ctx); err != nil {
 			log.Printf("Server shutdown error: %v", err)

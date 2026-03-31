@@ -4,7 +4,8 @@
 *.dll
 *.so
 *.dylib
-apex-venv.exe
+/apex-venv
+/apex-mcp
 
 # Test binary
 *.test

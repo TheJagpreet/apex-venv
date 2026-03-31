@@ -19,6 +19,7 @@ apex-venv gives AI agents and developers secure, isolated container environments
 
 - **Go SDK** — Programmatic sandbox management with streaming output and automatic timeout cleanup
 - **MCP Server** — Expose sandbox operations as tools for AI agents via the [Model Context Protocol](https://modelcontextprotocol.io)
+- **REST API Server** — HTTP/JSON API for frontend applications and external services ([API docs](cmd/apex-server/API.md))
 - **CLI** — Interactive terminal UI with real-time streaming output, color-coded status, and guided prompts
 - **Pre-built Images** — Ubuntu, Python, and Node.js containers optimized for agent workloads
 
@@ -33,6 +34,7 @@ apex-venv gives AI agents and developers secure, isolated container environments
 | **File Transfer** | Copy files and directories between the host and sandbox |
 | **Resource Limits** | Constrain CPU and memory per sandbox |
 | **MCP Integration** | Full suite of MCP tools for AI-agent-driven sandbox management |
+| **REST API** | HTTP/JSON server for frontend dashboards and external integrations |
 | **Interactive CLI** | Arrow-key menu navigation, prompts, spinners, and confirmation dialogs |
 
 ---
@@ -44,6 +46,7 @@ apex-venv gives AI agents and developers secure, isolated container environments
 - [Quick Start](#quick-start)
 - [CLI Reference](#cli-reference)
 - [MCP Server](#mcp-server)
+- [REST API Server](#rest-api-server)
 - [Go SDK](#go-sdk)
 - [Streaming Output](#streaming-output)
 - [Sandbox Timeouts](#sandbox-timeouts)
@@ -309,6 +312,69 @@ An AI agent connected via MCP can:
 
 ---
 
+## REST API Server
+
+`apex-server` is an HTTP/JSON server that exposes all apex-venv sandbox operations as REST endpoints — ideal for building frontend dashboards, CI/CD integrations, or any external service.
+
+> **Full API reference:** [`cmd/apex-server/API.md`](cmd/apex-server/API.md)
+
+### Build
+
+```bash
+go build -o apex-server ./cmd/apex-server/
+```
+
+Or install directly:
+
+```bash
+go install github.com/apex-venv/apex-venv/cmd/apex-server@latest
+```
+
+### Run
+
+```bash
+./apex-server          # listens on :8080
+PORT=9090 ./apex-server  # override the port
+```
+
+### Endpoints
+
+| Method   | Path                                | Description                               |
+|----------|-------------------------------------|-------------------------------------------|
+| `GET`    | `/health`                           | Health check                              |
+| `POST`   | `/api/sandboxes`                    | Create a new sandbox                      |
+| `GET`    | `/api/sandboxes`                    | List all sandboxes                        |
+| `GET`    | `/api/sandboxes/{id}/status`        | Get sandbox status                        |
+| `DELETE` | `/api/sandboxes/{id}`               | Destroy a sandbox                         |
+| `POST`   | `/api/sandboxes/{id}/exec`          | Execute a command (buffered output)       |
+| `POST`   | `/api/sandboxes/{id}/exec/stream`   | Execute a command (interleaved output)    |
+| `POST`   | `/api/sandboxes/{id}/copy-to`       | Copy host → sandbox                       |
+| `POST`   | `/api/sandboxes/{id}/copy-from`     | Copy sandbox → host                       |
+
+All sandboxes are automatically labelled `apex-venv=true`, and the list endpoint returns only containers with that label.
+
+### Quick Example
+
+```bash
+# Create a sandbox
+curl -X POST http://localhost:8080/api/sandboxes \
+  -H "Content-Type: application/json" \
+  -d '{"image": "apex-venv/ubuntu", "name": "demo", "timeout": "30m"}'
+
+# List sandboxes
+curl http://localhost:8080/api/sandboxes
+
+# Run a command
+curl -X POST http://localhost:8080/api/sandboxes/<id>/exec \
+  -H "Content-Type: application/json" \
+  -d '{"command": "echo hello"}'
+
+# Destroy
+curl -X DELETE http://localhost:8080/api/sandboxes/<id>
+```
+
+---
+
 ## Go SDK
 
 Import the `sandbox` package to manage sandboxes programmatically:
@@ -512,16 +578,19 @@ podman build -t apex-venv/node-22 --build-arg NODE_VERSION=22 ./images/node/
 ```
 ┌──────────────────────────────────────────────────────┐
 │  AI Agent  /  MCP Client  /  Developer Terminal      │
+│  Frontend App  /  External Service                   │
 └──────────────────────┬───────────────────────────────┘
                        │
-           MCP (stdio)  │  CLI commands
+           MCP (stdio) │  CLI commands  │  REST API (HTTP)
                        ▼
 ┌──────────────────────────────────────────────────────┐
 │  apex-mcp (MCP Server)     apex-venv (CLI)           │
+│  apex-server (REST API)                              │
 │                                                      │
 │  • 8 MCP tools             • Interactive mode        │
-│  • Streaming exec          • Streaming exec          │
-│  • Timeout support         • Timeout support         │
+│  • 9 REST endpoints        • Streaming exec          │
+│  • Streaming exec          • Timeout support         │
+│  • Timeout support                                   │
 └──────────────────────┬───────────────────────────────┘
                        │
                        ▼
@@ -532,6 +601,7 @@ podman build -t apex-venv/node-22 --build-arg NODE_VERSION=22 ./images/node/
 │  • Exec (buffered) & ExecStream (real-time)          │
 │  • TimeoutManager (auto-cleanup)                     │
 │  • File copy, resource limits, git clone             │
+│  • Label: apex-venv=true on every sandbox            │
 └──────────────────────┬───────────────────────────────┘
                        │  Podman CLI
                        ▼
@@ -552,8 +622,11 @@ apex-venv/
 ├── cmd/
 │   ├── apex-venv/              # CLI binary
 │   │   └── main.go
-│   └── apex-mcp/               # MCP server binary
-│       └── main.go
+│   ├── apex-mcp/               # MCP server binary
+│   │   └── main.go
+│   └── apex-server/            # REST API server binary
+│       ├── main.go
+│       └── API.md              # Full REST API documentation
 ├── sandbox/                    # Go SDK
 │   ├── sandbox.go              # Interfaces & types (Sandbox, Provider, OutputHandler)
 │   ├── config.go               # Config & Mount types (includes Timeout)
@@ -579,6 +652,7 @@ apex-venv/
 - [x] MCP tool definitions for AI agent integration
 - [x] Streaming command output (`ExecStream`)
 - [x] Sandbox timeout / auto-cleanup (`TimeoutManager`)
+- [x] REST API server for frontend integrations (`apex-server`)
 - [ ] Image registry (publish to ghcr.io)
 - [ ] Snapshot / restore sandbox state
 - [ ] Multi-provider support (Docker, containerd)

@@ -6,6 +6,7 @@
 *.dylib
 /apex-venv
 /apex-mcp
+/apex-server
 
 # Test binary
 *.test

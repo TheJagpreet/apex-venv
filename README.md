@@ -9,6 +9,7 @@ Sandboxed container environments for AI agents to execute, test, and validate co
 - [Installation](#installation)
 - [Quick Start](#quick-start)
 - [CLI Reference](#cli-reference)
+- [MCP Server](#mcp-server)
 - [Go SDK](#go-sdk)
 - [Container Images](#container-images)
 - [Architecture](#architecture)
@@ -22,6 +23,7 @@ Sandboxed container environments for AI agents to execute, test, and validate co
 apex-venv provides:
 
 - **A Go SDK** (`sandbox/`) for creating and managing isolated Podman containers
+- **An MCP server** (`apex-mcp`) that exposes sandbox management as tools for AI agents via the [Model Context Protocol](https://modelcontextprotocol.io)
 - **A CLI** (`apex-venv`) with colorful interactive output for managing sandboxes from the terminal
 - **Pre-built container images** (`images/`) optimized for agent workloads
 
@@ -200,6 +202,74 @@ Running `apex-venv` with no arguments launches interactive mode:
 
 ---
 
+## MCP Server
+
+`apex-mcp` is a [Model Context Protocol](https://modelcontextprotocol.io) server that lets AI agents create and manage sandbox environments over stdio.
+
+### Build
+
+```bash
+go build -o apex-mcp ./cmd/apex-mcp/
+```
+
+Or install directly:
+
+```bash
+go install github.com/apex-venv/apex-venv/cmd/apex-mcp@latest
+```
+
+### Configuration
+
+Add the server to your MCP client configuration. For example, in Claude Desktop (`claude_desktop_config.json`):
+
+```json
+{
+  "mcpServers": {
+    "apex-venv": {
+      "command": "/path/to/apex-mcp"
+    }
+  }
+}
+```
+
+Or if you built from source:
+
+```json
+{
+  "mcpServers": {
+    "apex-venv": {
+      "command": "go",
+      "args": ["run", "./cmd/apex-mcp/"],
+      "cwd": "/path/to/apex-venv"
+    }
+  }
+}
+```
+
+### Available Tools
+
+| Tool | Description |
+|------|-------------|
+| `create_sandbox` | Create a new sandbox container (image, name, workdir, env, mounts, memory, cpus, repo_url) |
+| `list_sandboxes` | List all sandbox containers managed by apex-venv |
+| `exec_command` | Execute a command inside a sandbox |
+| `get_status` | Get the current status of a sandbox |
+| `destroy_sandbox` | Stop and remove a sandbox container |
+| `copy_to_sandbox` | Copy a file or directory from the host into a sandbox |
+| `copy_from_sandbox` | Copy a file or directory from a sandbox to the host |
+
+### Example Agent Workflow
+
+An AI agent connected via MCP can:
+
+1. **Create a sandbox** — `create_sandbox` with `image: "apex-venv/python-3.12"` and optionally clone a repo
+2. **Run commands** — `exec_command` to install dependencies, run tests, execute scripts
+3. **Transfer files** — `copy_to_sandbox` / `copy_from_sandbox` to move code and artifacts
+4. **Check status** — `get_status` to verify the sandbox is still running
+5. **Clean up** — `destroy_sandbox` when done
+
+---
+
 ## Go SDK
 
 Import the `sandbox` package to manage sandboxes programmatically.
@@ -301,8 +371,16 @@ podman build -t apex-venv/node-22 --build-arg NODE_VERSION=22 ./images/node/
 
 ```
 ┌──────────────────────────────────────────────┐
-│  Agent / MCP Tool / CLI                      │
+│  Agent / MCP Client / CLI                    │
 │  (requests sandbox, sends commands)          │
+└──────────────┬───────────────────────────────┘
+               │  MCP (stdio) or direct Go calls
+               ▼
+┌──────────────────────────────────────────────┐
+│  apex-mcp (MCP Server)  /  apex-venv (CLI)   │
+│                                              │
+│  Exposes sandbox operations as MCP tools     │
+│  or interactive CLI commands                 │
 └──────────────┬───────────────────────────────┘
                │
                ▼
@@ -330,7 +408,9 @@ podman build -t apex-venv/node-22 --build-arg NODE_VERSION=22 ./images/node/
 ```
 apex-venv/
 ├── cmd/
-│   └── apex-venv/          # CLI binary
+│   ├── apex-venv/          # CLI binary
+│   │   └── main.go
+│   └── apex-mcp/           # MCP server binary
 │       └── main.go
 ├── sandbox/                # Go SDK
 │   ├── sandbox.go          # Sandbox interface & types
@@ -357,7 +437,7 @@ apex-venv/
 - [x] Python image (3.11, 3.12)
 - [x] Node.js image (18, 20, 22)
 - [x] Repo cloning support
-- [ ] MCP tool definitions for agent integration
+- [x] MCP tool definitions for agent integration
 - [ ] Streaming command output
 - [ ] Sandbox timeout / auto-cleanup
 - [ ] Image registry (ghcr.io)

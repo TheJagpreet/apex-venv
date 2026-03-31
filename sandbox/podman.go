@@ -72,6 +72,10 @@ func (p *PodmanProvider) Create(ctx context.Context, cfg Config) (Sandbox, error
 
 	// Clone a git repository into the working directory if requested.
 	if cfg.RepoURL != "" {
+		if !isValidGitURL(cfg.RepoURL) {
+			_ = sb.Destroy(ctx)
+			return nil, fmt.Errorf("invalid git repo URL: %s", cfg.RepoURL)
+		}
 		cloneDir := cfg.WorkDir
 		if cloneDir == "" {
 			cloneDir = "/workspace"
@@ -258,4 +262,14 @@ func mapStatus(state string) SandboxStatus {
 	default:
 		return StatusUnknown
 	}
+}
+
+// isValidGitURL checks that the URL looks like a plausible Git remote.
+func isValidGitURL(u string) bool {
+	for _, prefix := range []string{"https://", "http://", "git://", "ssh://", "git@"} {
+		if strings.HasPrefix(u, prefix) {
+			return true
+		}
+	}
+	return false
 }

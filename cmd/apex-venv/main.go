@@ -197,6 +197,12 @@ func interactiveCreate(ctx context.Context) error {
 		}
 	}
 
+	repoURL, err := promptText("Git repo URL to clone (optional, press Enter to skip)")
+	if err != nil {
+		return err
+	}
+	cfg.RepoURL = repoURL
+
 	mountStr, err := promptText("Mounts src:dst[:ro],... (optional, press Enter to skip)")
 	if err != nil {
 		return err
@@ -375,6 +381,7 @@ func printUsage() {
 		{"--mount src:dst[:ro]", "Bind mount (repeatable)", "No"},
 		{"--memory <limit>", "Memory limit (e.g. 512m, 2g)", "No"},
 		{"--cpus <n>", "CPU limit (e.g. 1.5)", "No"},
+		{"--repo <url>", "Git repo URL to clone into the sandbox", "No"},
 	}
 	_ = pterm.DefaultTable.WithHasHeader().WithBoxed().WithData(fd).Render()
 	fmt.Println()
@@ -383,6 +390,7 @@ func printUsage() {
 	exStyle := pterm.NewStyle(pterm.FgLightGreen)
 	exStyle.Println("  apex-venv create --image apex-venv/ubuntu --name my-sandbox")
 	exStyle.Println("  apex-venv create --image apex-venv/ubuntu --memory 512m --cpus 2")
+	exStyle.Println("  apex-venv create --image apex-venv/python-3.12 --repo https://github.com/user/project.git")
 	exStyle.Println("  apex-venv list")
 	exStyle.Println("  apex-venv exec <sandbox-id> -- ls -la /workspace")
 	exStyle.Println("  apex-venv status <sandbox-id>")
@@ -453,6 +461,12 @@ func cmdCreate(ctx context.Context, args []string) error {
 				return fmt.Errorf("invalid --cpus value: %s", args[i])
 			}
 			cfg.CPUs = cpus
+		case "--repo":
+			i++
+			if i >= len(args) {
+				return fmt.Errorf("--repo requires a value")
+			}
+			cfg.RepoURL = args[i]
 		default:
 			return fmt.Errorf("unknown flag: %s", args[i])
 		}
@@ -483,6 +497,9 @@ func doCreate(ctx context.Context, cfg sandbox.Config) error {
 	}
 	if cfg.CPUs > 0 {
 		infoPrn.Printfln("CPUs: %s", pterm.LightCyan(fmt.Sprintf("%.2f", cfg.CPUs)))
+	}
+	if cfg.RepoURL != "" {
+		infoPrn.Printfln("Repo: %s", pterm.LightCyan(cfg.RepoURL))
 	}
 	fmt.Println()
 

@@ -64,11 +64,35 @@ func (p *PodmanProvider) Create(ctx context.Context, cfg Config) (Sandbox, error
 	}
 
 	id := strings.TrimSpace(stdout)
-	return &podmanSandbox{
+	sb := &podmanSandbox{
 		id:       id,
 		image:    cfg.Image,
 		provider: p,
-	}, nil
+	}
+
+	// Clone a git repository into the working directory if requested.
+	if cfg.RepoURL != "" {
+		cloneDir := cfg.WorkDir
+		if cloneDir == "" {
+			cloneDir = "/workspace"
+		}
+		cloneCmd := Command{
+			Cmd:  "git",
+			Args: []string{"clone", cfg.RepoURL, cloneDir},
+		}
+		result, err := sb.Exec(ctx, cloneCmd)
+		if err != nil {
+			// Clean up the container on clone failure.
+			_ = sb.Destroy(ctx)
+			return nil, fmt.Errorf("git clone failed: %w", err)
+		}
+		if result.ExitCode != 0 {
+			_ = sb.Destroy(ctx)
+			return nil, fmt.Errorf("git clone failed (exit %d): %s", result.ExitCode, result.Stderr)
+		}
+	}
+
+	return sb, nil
 }
 
 func (p *PodmanProvider) Get(ctx context.Context, id string) (Sandbox, error) {

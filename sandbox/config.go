@@ -22,6 +22,9 @@ type Config struct {
 
 	// Name is an optional human-readable name for the sandbox.
 	Name string
+
+	// RepoURL is an optional Git repository URL to clone into the working directory.
+	RepoURL string
 }
 
 // Mount describes a bind mount from host to container.

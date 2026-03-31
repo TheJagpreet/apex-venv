@@ -1,17 +1,20 @@
 package sandbox
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"os/exec"
 	"strings"
+	"sync"
 )
 
 // PodmanProvider implements Provider using Podman CLI.
 type PodmanProvider struct {
-	binary string // path to podman binary
+	binary   string // path to podman binary
+	timeouts *TimeoutManager
 }
 
 // NewPodmanProvider creates a new PodmanProvider.
@@ -21,7 +24,15 @@ func NewPodmanProvider() (*PodmanProvider, error) {
 	if err != nil {
 		return nil, fmt.Errorf("podman not found in PATH: %w", err)
 	}
-	return &PodmanProvider{binary: binary}, nil
+	return &PodmanProvider{
+		binary:   binary,
+		timeouts: NewTimeoutManager(),
+	}, nil
+}
+
+// Timeouts returns the provider's TimeoutManager for querying sandbox timeouts.
+func (p *PodmanProvider) Timeouts() *TimeoutManager {
+	return p.timeouts
 }
 
 func (p *PodmanProvider) Create(ctx context.Context, cfg Config) (Sandbox, error) {
@@ -94,6 +105,14 @@ func (p *PodmanProvider) Create(ctx context.Context, cfg Config) (Sandbox, error
 			_ = sb.Destroy(ctx)
 			return nil, fmt.Errorf("git clone failed (exit %d): %s", result.ExitCode, result.Stderr)
 		}
+	}
+
+	// Register auto-cleanup if a timeout is configured.
+	if cfg.Timeout > 0 {
+		sbRef := sb
+		p.timeouts.Register(sb.ID(), cfg.Timeout, func() {
+			_ = sbRef.Destroy(context.Background())
+		})
 	}
 
 	return sb, nil
@@ -219,6 +238,70 @@ func (s *podmanSandbox) Exec(ctx context.Context, cmd Command) (*ExecResult, err
 	return result, nil
 }
 
+func (s *podmanSandbox) ExecStream(ctx context.Context, cmd Command, handler OutputHandler) (int, error) {
+	args := []string{"exec"}
+
+	if cmd.Dir != "" {
+		args = append(args, "--workdir", cmd.Dir)
+	}
+
+	for _, env := range cmd.Env {
+		args = append(args, "--env", env)
+	}
+
+	args = append(args, s.id, cmd.Cmd)
+	args = append(args, cmd.Args...)
+
+	podmanCmd := exec.CommandContext(ctx, s.provider.binary, args...)
+
+	stdoutPipe, err := podmanCmd.StdoutPipe()
+	if err != nil {
+		return -1, fmt.Errorf("failed to create stdout pipe: %w", err)
+	}
+	stderrPipe, err := podmanCmd.StderrPipe()
+	if err != nil {
+		return -1, fmt.Errorf("failed to create stderr pipe: %w", err)
+	}
+
+	if cmd.Stdin != nil {
+		podmanCmd.Stdin = cmd.Stdin
+	}
+
+	if err := podmanCmd.Start(); err != nil {
+		return -1, fmt.Errorf("failed to start command: %w", err)
+	}
+
+	var wg sync.WaitGroup
+	wg.Add(2)
+
+	go func() {
+		defer wg.Done()
+		scanner := bufio.NewScanner(stdoutPipe)
+		for scanner.Scan() {
+			handler("stdout", scanner.Bytes())
+		}
+	}()
+
+	go func() {
+		defer wg.Done()
+		scanner := bufio.NewScanner(stderrPipe)
+		for scanner.Scan() {
+			handler("stderr", scanner.Bytes())
+		}
+	}()
+
+	wg.Wait()
+
+	err = podmanCmd.Wait()
+	if err != nil {
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			return exitErr.ExitCode(), nil
+		}
+		return -1, fmt.Errorf("exec failed: %w", err)
+	}
+	return 0, nil
+}
+
 func (s *podmanSandbox) CopyTo(ctx context.Context, hostPath, containerPath string) error {
 	dst := fmt.Sprintf("%s:%s", s.id, containerPath)
 	_, stderr, err := s.provider.run(ctx, "cp", hostPath, dst)
@@ -246,6 +329,9 @@ func (s *podmanSandbox) Status(ctx context.Context) (SandboxStatus, error) {
 }
 
 func (s *podmanSandbox) Destroy(ctx context.Context) error {
+	// Cancel any pending auto-cleanup timeout.
+	s.provider.timeouts.Unregister(s.id)
+
 	_, stderr, err := s.provider.run(ctx, "rm", "-f", s.id)
 	if err != nil {
 		return fmt.Errorf("destroy failed: %w\nstderr: %s", err, stderr)

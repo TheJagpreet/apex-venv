@@ -1,5 +1,7 @@
 package sandbox
 
+import "time"
+
 // Config holds the configuration for creating a new sandbox.
 type Config struct {
 	// Image is the container image to use (e.g. "apex-venv/ubuntu").
@@ -25,6 +27,10 @@ type Config struct {
 
 	// RepoURL is an optional Git repository URL to clone into the working directory.
 	RepoURL string
+
+	// Timeout is the maximum lifetime of the sandbox. After this duration,
+	// the sandbox is automatically destroyed. Zero means no timeout.
+	Timeout time.Duration
 }
 
 // Mount describes a bind mount from host to container.

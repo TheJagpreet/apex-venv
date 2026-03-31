@@ -16,6 +16,9 @@ import (
 // errBack is returned when the user wants to go back to the main menu.
 var errBack = errors.New("back")
 
+// streamStyle is used to label streamed output lines from stderr.
+var streamStderrStyle = pterm.NewStyle(pterm.FgYellow)
+
 var (
 	banner = pterm.DefaultBigText.WithLetters(
 		pterm.NewLettersFromStringWithStyle("apex", pterm.NewStyle(pterm.FgCyan)),
@@ -220,6 +223,18 @@ func interactiveCreate(ctx context.Context) error {
 		}
 	}
 
+	timeoutStr, err := promptText("Timeout e.g. 30m, 2h (optional, press Enter to skip)")
+	if err != nil {
+		return err
+	}
+	if timeoutStr != "" {
+		d, parseErr := time.ParseDuration(timeoutStr)
+		if parseErr != nil {
+			return fmt.Errorf("invalid timeout value: %s", timeoutStr)
+		}
+		cfg.Timeout = d
+	}
+
 	fmt.Println()
 	return doCreate(ctx, cfg)
 }
@@ -250,35 +265,29 @@ func interactiveExec(ctx context.Context) error {
 		return err
 	}
 
-	spinner, _ := pterm.DefaultSpinner.
-		WithText("Executing command...").
-		WithStyle(pterm.NewStyle(pterm.FgLightCyan)).
-		Start()
+	headerStyle.Println("Streaming output:")
+	fmt.Println()
 
-	result, err := sb.Exec(ctx, sandbox.Command{
+	exitCode, err := sb.ExecStream(ctx, sandbox.Command{
 		Cmd:  parts[0],
 		Args: parts[1:],
+	}, func(stream string, data []byte) {
+		if stream == "stderr" {
+			streamStderrStyle.Printfln("[stderr] %s", string(data))
+		} else {
+			fmt.Println(string(data))
+		}
 	})
 	if err != nil {
-		spinner.Fail("Execution failed")
+		errorPrn.Println("Execution failed")
 		return err
 	}
 
-	if result.ExitCode == 0 {
-		spinner.Success("Command completed")
+	fmt.Println()
+	if exitCode == 0 {
+		successPrn.Println("Command completed")
 	} else {
-		spinner.Fail(fmt.Sprintf("Command exited with code %d", result.ExitCode))
-	}
-
-	if result.Stdout != "" {
-		fmt.Println()
-		headerStyle.Println("stdout:")
-		fmt.Print(result.Stdout)
-	}
-	if result.Stderr != "" {
-		fmt.Println()
-		pterm.NewStyle(pterm.FgYellow, pterm.Bold).Println("stderr:")
-		fmt.Print(result.Stderr)
+		errorPrn.Printfln("Command exited with code %d", exitCode)
 	}
 	return nil
 }
@@ -382,6 +391,7 @@ func printUsage() {
 		{"--memory <limit>", "Memory limit (e.g. 512m, 2g)", "No"},
 		{"--cpus <n>", "CPU limit (e.g. 1.5)", "No"},
 		{"--repo <url>", "Git repo URL to clone into the sandbox", "No"},
+		{"--timeout <duration>", "Auto-destroy after duration (e.g. 30m, 2h)", "No"},
 	}
 	_ = pterm.DefaultTable.WithHasHeader().WithBoxed().WithData(fd).Render()
 	fmt.Println()
@@ -467,6 +477,16 @@ func cmdCreate(ctx context.Context, args []string) error {
 				return fmt.Errorf("--repo requires a value")
 			}
 			cfg.RepoURL = args[i]
+		case "--timeout":
+			i++
+			if i >= len(args) {
+				return fmt.Errorf("--timeout requires a value")
+			}
+			d, parseErr := time.ParseDuration(args[i])
+			if parseErr != nil {
+				return fmt.Errorf("invalid --timeout value: %s", args[i])
+			}
+			cfg.Timeout = d
 		default:
 			return fmt.Errorf("unknown flag: %s", args[i])
 		}
@@ -501,6 +521,9 @@ func doCreate(ctx context.Context, cfg sandbox.Config) error {
 	if cfg.RepoURL != "" {
 		infoPrn.Printfln("Repo: %s", pterm.LightCyan(cfg.RepoURL))
 	}
+	if cfg.Timeout > 0 {
+		infoPrn.Printfln("Timeout: %s", pterm.LightCyan(cfg.Timeout.String()))
+	}
 	fmt.Println()
 
 	spinner, _ := pterm.DefaultSpinner.
@@ -526,6 +549,9 @@ func doCreate(ctx context.Context, cfg sandbox.Config) error {
 	details := fmt.Sprintf("ID:    %s\nImage: %s", pterm.LightGreen(id), pterm.LightMagenta(cfg.Image))
 	if cfg.Name != "" {
 		details += fmt.Sprintf("\nName:  %s", pterm.LightYellow(cfg.Name))
+	}
+	if cfg.Timeout > 0 {
+		details += fmt.Sprintf("\nTimeout: %s", pterm.LightYellow(cfg.Timeout.String()))
 	}
 	panel := pterm.DefaultBox.
 		WithTitle(pterm.LightCyan("Sandbox Details")).
@@ -611,38 +637,30 @@ func cmdExec(ctx context.Context, args []string) error {
 		return err
 	}
 
-	spinner, _ := pterm.DefaultSpinner.
-		WithText(fmt.Sprintf("Running: %s", strings.Join(cmdParts, " "))).
-		WithStyle(pterm.NewStyle(pterm.FgLightCyan)).
-		Start()
+	infoPrn.Printfln("Running: %s", strings.Join(cmdParts, " "))
+	fmt.Println()
 
-	result, err := sb.Exec(ctx, sandbox.Command{
+	exitCode, err := sb.ExecStream(ctx, sandbox.Command{
 		Cmd:  cmdParts[0],
 		Args: cmdParts[1:],
+	}, func(stream string, data []byte) {
+		if stream == "stderr" {
+			fmt.Fprintf(os.Stderr, "%s\n", string(data))
+		} else {
+			fmt.Println(string(data))
+		}
 	})
 	if err != nil {
-		spinner.Fail("Execution failed")
+		errorPrn.Println("Execution failed")
 		return err
 	}
 
-	if result.ExitCode == 0 {
-		spinner.Success(fmt.Sprintf("Command completed (exit code %d)", result.ExitCode))
+	fmt.Println()
+	if exitCode == 0 {
+		successPrn.Printfln("Command completed (exit code %d)", exitCode)
 	} else {
-		spinner.Fail(fmt.Sprintf("Command exited with code %d", result.ExitCode))
-	}
-
-	if result.Stdout != "" {
-		fmt.Println()
-		headerStyle.Println("stdout:")
-		fmt.Print(result.Stdout)
-	}
-	if result.Stderr != "" {
-		fmt.Println()
-		pterm.NewStyle(pterm.FgYellow, pterm.Bold).Println("stderr:")
-		fmt.Fprint(os.Stderr, result.Stderr)
-	}
-	if result.ExitCode != 0 {
-		return fmt.Errorf("command exited with code %d", result.ExitCode)
+		errorPrn.Printfln("Command exited with code %d", exitCode)
+		return fmt.Errorf("command exited with code %d", exitCode)
 	}
 	return nil
 }

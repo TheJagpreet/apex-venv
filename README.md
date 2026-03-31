@@ -84,19 +84,32 @@ cd images/ubuntu
 podman build -t apex-venv/ubuntu .
 ```
 
+Or build a Python / Node.js image:
+
+```bash
+podman build -t apex-venv/python-3.12 --build-arg PYTHON_VERSION=3.12 ./images/python/
+podman build -t apex-venv/node-20 --build-arg NODE_VERSION=20 ./images/node/
+```
+
 **2. Create a sandbox**
 
 ```bash
 apex-venv create --image apex-venv/ubuntu --name my-sandbox
 ```
 
-**3. Run a command inside it**
+**3. Create a sandbox and clone a repo into it**
+
+```bash
+apex-venv create --image apex-venv/python-3.12 --name dev --repo https://github.com/user/project.git
+```
+
+**4. Run a command inside it**
 
 ```bash
 apex-venv exec <sandbox-id> -- echo "hello from sandbox"
 ```
 
-**4. Clean up**
+**5. Clean up**
 
 ```bash
 apex-venv destroy <sandbox-id>
@@ -140,6 +153,7 @@ Running with no arguments opens an interactive picker where you can select a com
 | `--mount src:dst[:ro]` | Bind mount from host to container (repeatable) | No |
 | `--memory <limit>` | Memory limit (e.g. `512m`, `2g`) | No |
 | `--cpus <n>` | CPU limit (e.g. `1.5`) | No |
+| `--repo <url>` | Git repo URL to clone into the sandbox | No |
 
 If `--image` is omitted, the CLI prompts for it interactively.
 
@@ -154,6 +168,13 @@ apex-venv create --image apex-venv/ubuntu \
   --memory 512m --cpus 2 \
   --mount /home/user/project:/workspace \
   --env MY_VAR=hello
+
+# Create a Python sandbox and clone a repo
+apex-venv create --image apex-venv/python-3.12 \
+  --repo https://github.com/user/project.git
+
+# Create a Node.js sandbox
+apex-venv create --image apex-venv/node-20 --name node-dev
 
 # List all sandboxes
 apex-venv list
@@ -209,6 +230,7 @@ func main() {
     sb, err := provider.Create(ctx, sandbox.Config{
         Image:   "apex-venv/ubuntu",
         WorkDir: "/workspace",
+        RepoURL: "https://github.com/user/project.git",
         Mounts: []sandbox.Mount{
             {Source: "/home/user/project", Target: "/workspace"},
         },
@@ -237,7 +259,7 @@ func main() {
 |------|-------------|
 | `Provider` | Creates, lists, and retrieves sandboxes |
 | `Sandbox` | A running container — exec commands, copy files, destroy |
-| `Config` | Image, mounts, env vars, resource limits, name, workdir |
+| `Config` | Image, mounts, env vars, resource limits, name, workdir, repo URL |
 | `Command` | Command to run: binary, args, dir, env, stdin |
 | `ExecResult` | Exit code, stdout, stderr |
 | `Mount` | Host-to-container bind mount with optional read-only flag |
@@ -251,11 +273,26 @@ Pre-built Dockerfiles optimized for agent workloads live in `images/`.
 | Image | Base | What's Included |
 |-------|------|-----------------|
 | `ubuntu` | Ubuntu 24.04 | build-essential, git, curl, wget, jq, vim, python3, pip |
+| `python-3.11` | Python 3.11 (Debian slim) | build-essential, git, curl, wget, jq, vim, pip |
+| `python-3.12` | Python 3.12 (Debian slim) | build-essential, git, curl, wget, jq, vim, pip |
+| `node-18` | Node.js 18 (Debian slim) | build-essential, git, curl, wget, jq, vim, npm, python3 |
+| `node-20` | Node.js 20 (Debian slim) | build-essential, git, curl, wget, jq, vim, npm, python3 |
+| `node-22` | Node.js 22 (Debian slim) | build-essential, git, curl, wget, jq, vim, npm, python3 |
 
 Build an image:
 
 ```bash
+# Ubuntu
 podman build -t apex-venv/ubuntu ./images/ubuntu/
+
+# Python (specify version with --build-arg)
+podman build -t apex-venv/python-3.11 --build-arg PYTHON_VERSION=3.11 ./images/python/
+podman build -t apex-venv/python-3.12 --build-arg PYTHON_VERSION=3.12 ./images/python/
+
+# Node.js (specify version with --build-arg)
+podman build -t apex-venv/node-18 --build-arg NODE_VERSION=18 ./images/node/
+podman build -t apex-venv/node-20 --build-arg NODE_VERSION=20 ./images/node/
+podman build -t apex-venv/node-22 --build-arg NODE_VERSION=22 ./images/node/
 ```
 
 ---
@@ -300,8 +337,12 @@ apex-venv/
 │   ├── config.go           # Configuration types
 │   └── podman.go           # Podman provider implementation
 ├── images/                 # Pre-built container images
-│   └── ubuntu/
-│       └── Dockerfile
+│   ├── ubuntu/
+│   │   └── Dockerfile
+│   ├── python/
+│   │   └── Dockerfile      # Python 3.11 / 3.12 (via build arg)
+│   └── node/
+│       └── Dockerfile      # Node.js 18 / 20 / 22 (via build arg)
 ├── go.mod
 └── README.md
 ```
@@ -313,9 +354,9 @@ apex-venv/
 - [x] Core sandbox interface + Podman provider
 - [x] Ubuntu base image
 - [x] CLI with interactive mode
-- [ ] Python image (3.11, 3.12)
-- [ ] Node.js image (18, 20, 22)
-- [ ] Repo cloning support
+- [x] Python image (3.11, 3.12)
+- [x] Node.js image (18, 20, 22)
+- [x] Repo cloning support
 - [ ] MCP tool definitions for agent integration
 - [ ] Streaming command output
 - [ ] Sandbox timeout / auto-cleanup

@@ -15,7 +15,7 @@ import (
 func main() {
 	provider, err := sandbox.NewPodmanProvider()
 	if err != nil {
-		log.Fatalf("failed to initialise sandbox provider: %v", err)
+		log.Fatalf("failed to initialize sandbox provider: %v", err)
 	}
 
 	s := server.NewMCPServer(
@@ -398,7 +398,7 @@ func parseMount(s string) (sandbox.Mount, error) {
 	return m, nil
 }
 
-// jsonResult serialises v as indented JSON and returns it as a text tool result.
+// jsonResult serializes v as indented JSON and returns it as a text tool result.
 func jsonResult(v any) (*mcp.CallToolResult, error) {
 	data, err := json.MarshalIndent(v, "", "  ")
 	if err != nil {

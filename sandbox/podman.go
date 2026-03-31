@@ -272,13 +272,22 @@ func (s *podmanSandbox) ExecStream(ctx context.Context, cmd Command, handler Out
 	}
 
 	var wg sync.WaitGroup
+	var scanErrMu sync.Mutex
+	var scanErr error
+
 	wg.Add(2)
 
 	go func() {
 		defer wg.Done()
 		scanner := bufio.NewScanner(stdoutPipe)
 		for scanner.Scan() {
-			handler("stdout", scanner.Bytes())
+			line := append([]byte(nil), scanner.Bytes()...)
+			handler("stdout", line)
+		}
+		if err := scanner.Err(); err != nil {
+			scanErrMu.Lock()
+			scanErr = fmt.Errorf("stdout scan error: %w", err)
+			scanErrMu.Unlock()
 		}
 	}()
 
@@ -286,11 +295,29 @@ func (s *podmanSandbox) ExecStream(ctx context.Context, cmd Command, handler Out
 		defer wg.Done()
 		scanner := bufio.NewScanner(stderrPipe)
 		for scanner.Scan() {
-			handler("stderr", scanner.Bytes())
+			line := append([]byte(nil), scanner.Bytes()...)
+			handler("stderr", line)
+		}
+		if err := scanner.Err(); err != nil {
+			scanErrMu.Lock()
+			if scanErr == nil {
+				scanErr = fmt.Errorf("stderr scan error: %w", err)
+			}
+			scanErrMu.Unlock()
 		}
 	}()
 
 	wg.Wait()
+
+	// Check for scanner errors before waiting for the process.
+	scanErrMu.Lock()
+	if scanErr != nil {
+		scanErrMu.Unlock()
+		// Still wait for process to finish, but report the scan error.
+		_ = podmanCmd.Wait()
+		return -1, scanErr
+	}
+	scanErrMu.Unlock()
 
 	err = podmanCmd.Wait()
 	if err != nil {

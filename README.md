@@ -1,38 +1,65 @@
+<div align="center">
+
 # apex-venv
 
-Sandboxed container environments for AI agents to execute, test, and validate code — without touching the host.
+**Sandboxed container environments for AI agents to execute, test, and validate code — without touching the host.**
+
+[![Go](https://img.shields.io/badge/Go-1.24+-00ADD8?logo=go&logoColor=white)](https://go.dev)
+[![Podman](https://img.shields.io/badge/Podman-4.0+-892CA0?logo=podman&logoColor=white)](https://podman.io)
+[![MCP](https://img.shields.io/badge/MCP-Compatible-blue)](https://modelcontextprotocol.io)
+[![License](https://img.shields.io/badge/License-TBD-lightgrey)](#license)
+
+</div>
+
+---
+
+## Overview
+
+apex-venv gives AI agents and developers secure, isolated container environments for running arbitrary code. Built on [Podman](https://podman.io), it provides three interfaces to the same core sandbox engine:
+
+- **Go SDK** — Programmatic sandbox management with streaming output and automatic timeout cleanup
+- **MCP Server** — Expose sandbox operations as tools for AI agents via the [Model Context Protocol](https://modelcontextprotocol.io)
+- **CLI** — Interactive terminal UI with real-time streaming output, color-coded status, and guided prompts
+- **Pre-built Images** — Ubuntu, Python, and Node.js containers optimized for agent workloads
+
+### Key Features
+
+| Feature | Description |
+|---------|-------------|
+| **Container Isolation** | Each sandbox runs in its own Podman container with configurable resource limits |
+| **Streaming Output** | Real-time, line-by-line command output via `ExecStream` — no waiting for completion |
+| **Auto-Cleanup Timeouts** | Set a lifetime on sandboxes; they are automatically destroyed when the timeout expires |
+| **Git Repo Cloning** | Clone a repository into the sandbox at creation time |
+| **File Transfer** | Copy files and directories between the host and sandbox |
+| **Resource Limits** | Constrain CPU and memory per sandbox |
+| **MCP Integration** | Full suite of MCP tools for AI-agent-driven sandbox management |
+| **Interactive CLI** | Arrow-key menu navigation, prompts, spinners, and confirmation dialogs |
+
+---
 
 ## Table of Contents
 
-- [Overview](#overview)
 - [Prerequisites](#prerequisites)
 - [Installation](#installation)
 - [Quick Start](#quick-start)
 - [CLI Reference](#cli-reference)
 - [MCP Server](#mcp-server)
 - [Go SDK](#go-sdk)
+- [Streaming Output](#streaming-output)
+- [Sandbox Timeouts](#sandbox-timeouts)
 - [Container Images](#container-images)
 - [Architecture](#architecture)
 - [Project Structure](#project-structure)
 - [Roadmap](#roadmap)
-
----
-
-## Overview
-
-apex-venv provides:
-
-- **A Go SDK** (`sandbox/`) for creating and managing isolated Podman containers
-- **An MCP server** (`apex-mcp`) that exposes sandbox management as tools for AI agents via the [Model Context Protocol](https://modelcontextprotocol.io)
-- **A CLI** (`apex-venv`) with colorful interactive output for managing sandboxes from the terminal
-- **Pre-built container images** (`images/`) optimized for agent workloads
+- [Contributing](#contributing)
+- [License](#license)
 
 ---
 
 ## Prerequisites
 
-| Dependency | Version | Check | Install |
-|------------|---------|-------|---------|
+| Dependency | Version | Verify | Install |
+|------------|---------|--------|---------|
 | **Go** | 1.24+ | `go version` | [go.dev/doc/install](https://go.dev/doc/install) |
 | **Podman** | 4.0+ | `podman info` | [podman.io/docs/installation](https://podman.io/docs/installation) |
 
@@ -42,11 +69,11 @@ apex-venv provides:
 
 ### Install from source
 
-This installs the `apex-venv` binary to your `$GOPATH/bin` (or `$HOME/go/bin` by default). Make sure that directory is in your `PATH`.
-
 ```bash
 go install github.com/apex-venv/apex-venv/cmd/apex-venv@latest
 ```
+
+This places the `apex-venv` binary in `$GOPATH/bin` (default `$HOME/go/bin`). Ensure that directory is in your `PATH`.
 
 ### Build locally
 
@@ -82,15 +109,14 @@ GOOS=windows GOARCH=amd64 go build -o apex-venv.exe ./cmd/apex-venv/
 **1. Build a sandbox image**
 
 ```bash
-cd images/ubuntu
-podman build -t apex-venv/ubuntu .
+podman build -t apex-venv/ubuntu ./images/ubuntu/
 ```
 
 Or build a Python / Node.js image:
 
 ```bash
 podman build -t apex-venv/python-3.12 --build-arg PYTHON_VERSION=3.12 ./images/python/
-podman build -t apex-venv/node-20 --build-arg NODE_VERSION=20 ./images/node/
+podman build -t apex-venv/node-20     --build-arg NODE_VERSION=20     ./images/node/
 ```
 
 **2. Create a sandbox**
@@ -99,25 +125,36 @@ podman build -t apex-venv/node-20 --build-arg NODE_VERSION=20 ./images/node/
 apex-venv create --image apex-venv/ubuntu --name my-sandbox
 ```
 
-**3. Create a sandbox and clone a repo into it**
+**3. Create with a timeout (auto-cleanup)**
 
 ```bash
-apex-venv create --image apex-venv/python-3.12 --name dev --repo https://github.com/user/project.git
+apex-venv create --image apex-venv/ubuntu --name temp --timeout 30m
 ```
 
-**4. Run a command inside it**
+The sandbox is automatically destroyed after 30 minutes.
+
+**4. Run a command (streaming output)**
 
 ```bash
 apex-venv exec <sandbox-id> -- echo "hello from sandbox"
 ```
 
-**5. Clean up**
+Output streams to your terminal line-by-line in real time.
+
+**5. Clone a repo into a sandbox**
+
+```bash
+apex-venv create --image apex-venv/python-3.12 --name dev \
+  --repo https://github.com/user/project.git
+```
+
+**6. Clean up**
 
 ```bash
 apex-venv destroy <sandbox-id>
 ```
 
-Or just run `apex-venv` with no arguments to get an interactive menu that walks you through everything.
+Or run `apex-venv` with no arguments for an interactive guided experience.
 
 ---
 
@@ -126,12 +163,10 @@ Or just run `apex-venv` with no arguments to get an interactive menu that walks 
 ### Usage
 
 ```
-apex-venv                     Interactive mode (opens a command picker)
+apex-venv                     Interactive mode (guided command picker)
 apex-venv <command> [flags]   Direct mode
 apex-venv help                Show help
 ```
-
-Running with no arguments opens an interactive picker where you can select a command with arrow keys, then fill in fields via prompts.
 
 ### Commands
 
@@ -148,7 +183,7 @@ Running with no arguments opens an interactive picker where you can select a com
 
 | Flag | Description | Required |
 |------|-------------|----------|
-| `--image <image>` | Container image to use (e.g. `apex-venv/ubuntu`) | **Yes** |
+| `--image <image>` | Container image (e.g. `apex-venv/ubuntu`) | **Yes** |
 | `--name <name>` | Human-readable sandbox name | No |
 | `--workdir <dir>` | Working directory inside the container | No |
 | `--env KEY=VAL` | Environment variable (repeatable) | No |
@@ -156,6 +191,7 @@ Running with no arguments opens an interactive picker where you can select a com
 | `--memory <limit>` | Memory limit (e.g. `512m`, `2g`) | No |
 | `--cpus <n>` | CPU limit (e.g. `1.5`) | No |
 | `--repo <url>` | Git repo URL to clone into the sandbox | No |
+| `--timeout <duration>` | Auto-destroy after duration (e.g. `30m`, `2h`) | No |
 
 If `--image` is omitted, the CLI prompts for it interactively.
 
@@ -165,23 +201,24 @@ If `--image` is omitted, the CLI prompts for it interactively.
 # Create with defaults
 apex-venv create --image apex-venv/ubuntu --name dev
 
-# Create with resource limits and a mount
+# Create with resource limits, mount, and timeout
 apex-venv create --image apex-venv/ubuntu \
   --memory 512m --cpus 2 \
   --mount /home/user/project:/workspace \
-  --env MY_VAR=hello
+  --env MY_VAR=hello \
+  --timeout 1h
 
 # Create a Python sandbox and clone a repo
 apex-venv create --image apex-venv/python-3.12 \
   --repo https://github.com/user/project.git
 
-# Create a Node.js sandbox
-apex-venv create --image apex-venv/node-20 --name node-dev
+# Create a Node.js sandbox with 30-minute timeout
+apex-venv create --image apex-venv/node-20 --name node-dev --timeout 30m
 
 # List all sandboxes
 apex-venv list
 
-# Execute a command
+# Execute a command (output streams in real time)
 apex-venv exec abc123 -- ls -la /workspace
 apex-venv exec abc123 -- bash -c "echo hello && uname -a"
 
@@ -197,8 +234,9 @@ apex-venv destroy abc123
 Running `apex-venv` with no arguments launches interactive mode:
 
 1. A command picker appears — navigate with arrow keys and press Enter
-2. The CLI prompts for each required and optional field
-3. Destructive actions (like `destroy`) ask for confirmation before proceeding
+2. The CLI prompts for each required and optional field (including timeout)
+3. Command output streams in real time
+4. Destructive actions (like `destroy`) ask for confirmation
 
 ---
 
@@ -220,7 +258,7 @@ go install github.com/apex-venv/apex-venv/cmd/apex-mcp@latest
 
 ### Configuration
 
-Add the server to your MCP client configuration. For example, in Claude Desktop (`claude_desktop_config.json`):
+Add the server to your MCP client configuration. For Claude Desktop (`claude_desktop_config.json`):
 
 ```json
 {
@@ -232,7 +270,7 @@ Add the server to your MCP client configuration. For example, in Claude Desktop 
 }
 ```
 
-Or if you built from source:
+Or run from source:
 
 ```json
 {
@@ -248,35 +286,38 @@ Or if you built from source:
 
 ### Available Tools
 
-| Tool | Description |
-|------|-------------|
-| `create_sandbox` | Create a new sandbox container (image, name, workdir, env, mounts, memory, cpus, repo_url) |
-| `list_sandboxes` | List all sandbox containers managed by apex-venv |
-| `exec_command` | Execute a command inside a sandbox |
-| `get_status` | Get the current status of a sandbox |
-| `destroy_sandbox` | Stop and remove a sandbox container |
-| `copy_to_sandbox` | Copy a file or directory from the host into a sandbox |
-| `copy_from_sandbox` | Copy a file or directory from a sandbox to the host |
+| Tool | Description | Key Parameters |
+|------|-------------|----------------|
+| `create_sandbox` | Create a new sandbox container | `image` (required), `name`, `workdir`, `env`, `mounts`, `memory`, `cpus`, `repo_url`, `timeout` |
+| `list_sandboxes` | List all apex-venv sandboxes | — |
+| `exec_command` | Execute a command (buffered output) | `sandbox_id`, `command` (required), `workdir`, `env` |
+| `exec_command_stream` | Execute a command (streaming output with interleaved stdout/stderr) | `sandbox_id`, `command` (required), `workdir`, `env` |
+| `get_status` | Get sandbox status | `sandbox_id` (required) |
+| `destroy_sandbox` | Stop and remove a sandbox | `sandbox_id` (required) |
+| `copy_to_sandbox` | Copy file/directory host → sandbox | `sandbox_id`, `host_path`, `container_path` (all required) |
+| `copy_from_sandbox` | Copy file/directory sandbox → host | `sandbox_id`, `container_path`, `host_path` (all required) |
 
 ### Example Agent Workflow
 
 An AI agent connected via MCP can:
 
-1. **Create a sandbox** — `create_sandbox` with `image: "apex-venv/python-3.12"` and optionally clone a repo
-2. **Run commands** — `exec_command` to install dependencies, run tests, execute scripts
+1. **Create a sandbox** — `create_sandbox` with `image: "apex-venv/python-3.12"`, optionally set `timeout: "1h"` and clone a repo
+2. **Run commands** — `exec_command` for simple runs, or `exec_command_stream` for interleaved line-by-line output
 3. **Transfer files** — `copy_to_sandbox` / `copy_from_sandbox` to move code and artifacts
-4. **Check status** — `get_status` to verify the sandbox is still running
-5. **Clean up** — `destroy_sandbox` when done
+4. **Check status** — `get_status` to verify the sandbox is running
+5. **Clean up** — `destroy_sandbox` when done (or let the timeout handle it)
 
 ---
 
 ## Go SDK
 
-Import the `sandbox` package to manage sandboxes programmatically.
+Import the `sandbox` package to manage sandboxes programmatically:
 
 ```bash
 go get github.com/apex-venv/apex-venv/sandbox
 ```
+
+### Basic Usage
 
 ```go
 package main
@@ -300,10 +341,6 @@ func main() {
     sb, err := provider.Create(ctx, sandbox.Config{
         Image:   "apex-venv/ubuntu",
         WorkDir: "/workspace",
-        RepoURL: "https://github.com/user/project.git",
-        Mounts: []sandbox.Mount{
-            {Source: "/home/user/project", Target: "/workspace"},
-        },
     })
     if err != nil {
         log.Fatal(err)
@@ -327,39 +364,142 @@ func main() {
 
 | Type | Description |
 |------|-------------|
-| `Provider` | Creates, lists, and retrieves sandboxes |
-| `Sandbox` | A running container — exec commands, copy files, destroy |
-| `Config` | Image, mounts, env vars, resource limits, name, workdir, repo URL |
+| `Provider` | Creates, lists, and retrieves sandboxes (`PodmanProvider` implementation) |
+| `Sandbox` | A running container — exec commands, stream output, copy files, destroy |
+| `Config` | Image, mounts, env vars, resource limits, name, workdir, repo URL, timeout |
 | `Command` | Command to run: binary, args, dir, env, stdin |
-| `ExecResult` | Exit code, stdout, stderr |
+| `ExecResult` | Exit code, stdout, stderr (from buffered `Exec`) |
+| `OutputHandler` | Callback for streaming output: `func(stream string, data []byte)` |
 | `Mount` | Host-to-container bind mount with optional read-only flag |
+| `TimeoutManager` | Tracks sandbox lifetimes and triggers automatic cleanup |
+
+---
+
+## Streaming Output
+
+The SDK provides two execution modes:
+
+### Buffered Execution (`Exec`)
+
+Runs the command and returns all output after completion:
+
+```go
+result, err := sb.Exec(ctx, sandbox.Command{
+    Cmd:  "bash",
+    Args: []string{"-c", "echo hello"},
+})
+// result.Stdout, result.Stderr, result.ExitCode
+```
+
+### Streaming Execution (`ExecStream`)
+
+Delivers output line-by-line via a callback as it is produced:
+
+```go
+exitCode, err := sb.ExecStream(ctx, sandbox.Command{
+    Cmd:  "bash",
+    Args: []string{"-c", "for i in 1 2 3; do echo line $i; sleep 1; done"},
+}, func(stream string, data []byte) {
+    // stream is "stdout" or "stderr"
+    fmt.Printf("[%s] %s\n", stream, string(data))
+})
+```
+
+**When to use streaming:**
+- Long-running commands where you want progress visibility
+- Commands that produce large output you want to process incrementally
+- Interactive CLI experiences where real-time feedback matters
+
+The CLI uses streaming by default for all `exec` commands. The MCP server provides both `exec_command` (buffered) and `exec_command_stream` (streaming with interleaved output lines).
+
+---
+
+## Sandbox Timeouts
+
+Sandboxes can be configured with a maximum lifetime. When the timeout expires, the sandbox is automatically destroyed — no manual cleanup required.
+
+### CLI
+
+```bash
+# Auto-destroy after 30 minutes
+apex-venv create --image apex-venv/ubuntu --timeout 30m
+
+# Auto-destroy after 2 hours
+apex-venv create --image apex-venv/python-3.12 --timeout 2h
+```
+
+### MCP
+
+```json
+{
+  "tool": "create_sandbox",
+  "arguments": {
+    "image": "apex-venv/ubuntu",
+    "timeout": "1h30m"
+  }
+}
+```
+
+### Go SDK
+
+```go
+import "time"
+
+sb, err := provider.Create(ctx, sandbox.Config{
+    Image:   "apex-venv/ubuntu",
+    Timeout: 30 * time.Minute,
+})
+// Sandbox is automatically destroyed after 30 minutes.
+// Manual sb.Destroy() cancels the pending timeout.
+```
+
+**How it works:**
+
+1. When a sandbox is created with a timeout, the `TimeoutManager` schedules a cleanup timer
+2. When the timer fires, the sandbox is automatically destroyed via `podman rm -f`
+3. If the sandbox is manually destroyed before the timeout, the timer is cancelled
+4. The timeout manager is thread-safe and supports concurrent sandbox creation
+
+### Querying Remaining Time
+
+```go
+remaining, ok := provider.Timeouts().Remaining(sandboxID)
+if ok {
+    fmt.Printf("Sandbox expires in %s\n", remaining)
+}
+```
 
 ---
 
 ## Container Images
 
-Pre-built Dockerfiles optimized for agent workloads live in `images/`.
+Pre-built Dockerfiles live in `images/`, optimized for agent workloads with common development tools pre-installed.
 
-| Image | Base | What's Included |
-|-------|------|-----------------|
-| `ubuntu` | Ubuntu 24.04 | build-essential, git, curl, wget, jq, vim, python3, pip |
-| `python-3.11` | Python 3.11 (Debian slim) | build-essential, git, curl, wget, jq, vim, pip |
-| `python-3.12` | Python 3.12 (Debian slim) | build-essential, git, curl, wget, jq, vim, pip |
-| `node-18` | Node.js 18 (Debian slim) | build-essential, git, curl, wget, jq, vim, npm, python3 |
-| `node-20` | Node.js 20 (Debian slim) | build-essential, git, curl, wget, jq, vim, npm, python3 |
-| `node-22` | Node.js 22 (Debian slim) | build-essential, git, curl, wget, jq, vim, npm, python3 |
+| Image | Base | Included Tools |
+|-------|------|----------------|
+| `apex-venv/ubuntu` | Ubuntu 24.04 | build-essential, git, curl, wget, jq, vim, python3, pip |
+| `apex-venv/python-3.11` | Python 3.11 (slim) | build-essential, git, curl, wget, jq, vim, pip |
+| `apex-venv/python-3.12` | Python 3.12 (slim) | build-essential, git, curl, wget, jq, vim, pip |
+| `apex-venv/node-18` | Node.js 18 (slim) | build-essential, git, curl, wget, jq, vim, npm, python3 |
+| `apex-venv/node-20` | Node.js 20 (slim) | build-essential, git, curl, wget, jq, vim, npm, python3 |
+| `apex-venv/node-22` | Node.js 22 (slim) | build-essential, git, curl, wget, jq, vim, npm, python3 |
 
-Build an image:
+All images:
+- Run as a non-root `sandbox` user with passwordless `sudo`
+- Use `/workspace` as the default working directory
+- Stay alive with `sleep infinity` for interactive `exec` usage
+
+### Build Images
 
 ```bash
 # Ubuntu
 podman build -t apex-venv/ubuntu ./images/ubuntu/
 
-# Python (specify version with --build-arg)
+# Python (specify version)
 podman build -t apex-venv/python-3.11 --build-arg PYTHON_VERSION=3.11 ./images/python/
 podman build -t apex-venv/python-3.12 --build-arg PYTHON_VERSION=3.12 ./images/python/
 
-# Node.js (specify version with --build-arg)
+# Node.js (specify version)
 podman build -t apex-venv/node-18 --build-arg NODE_VERSION=18 ./images/node/
 podman build -t apex-venv/node-20 --build-arg NODE_VERSION=20 ./images/node/
 podman build -t apex-venv/node-22 --build-arg NODE_VERSION=22 ./images/node/
@@ -370,35 +510,37 @@ podman build -t apex-venv/node-22 --build-arg NODE_VERSION=22 ./images/node/
 ## Architecture
 
 ```
-┌──────────────────────────────────────────────┐
-│  Agent / MCP Client / CLI                    │
-│  (requests sandbox, sends commands)          │
-└──────────────┬───────────────────────────────┘
-               │  MCP (stdio) or direct Go calls
-               ▼
-┌──────────────────────────────────────────────┐
-│  apex-mcp (MCP Server)  /  apex-venv (CLI)   │
-│                                              │
-│  Exposes sandbox operations as MCP tools     │
-│  or interactive CLI commands                 │
-└──────────────┬───────────────────────────────┘
-               │
-               ▼
-┌──────────────────────────────────────────────┐
-│  sandbox (Go SDK)                            │
-│                                              │
-│  • Create / destroy sandboxes                │
-│  • Execute commands, capture output          │
-│  • Mount host dirs, copy files in/out        │
-│  • Resource limits (CPU, memory)             │
-└──────────────┬───────────────────────────────┘
-               │  Podman CLI
-               ▼
-┌──────────────────────────────────────────────┐
-│  Container Runtime (Podman)                  │
-│                                              │
-│  Runs pre-built images from /images          │
-└──────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────┐
+│  AI Agent  /  MCP Client  /  Developer Terminal      │
+└──────────────────────┬───────────────────────────────┘
+                       │
+           MCP (stdio)  │  CLI commands
+                       ▼
+┌──────────────────────────────────────────────────────┐
+│  apex-mcp (MCP Server)     apex-venv (CLI)           │
+│                                                      │
+│  • 8 MCP tools             • Interactive mode        │
+│  • Streaming exec          • Streaming exec          │
+│  • Timeout support         • Timeout support         │
+└──────────────────────┬───────────────────────────────┘
+                       │
+                       ▼
+┌──────────────────────────────────────────────────────┐
+│  sandbox (Go SDK)                                    │
+│                                                      │
+│  • Provider / Sandbox interfaces                     │
+│  • Exec (buffered) & ExecStream (real-time)          │
+│  • TimeoutManager (auto-cleanup)                     │
+│  • File copy, resource limits, git clone             │
+└──────────────────────┬───────────────────────────────┘
+                       │  Podman CLI
+                       ▼
+┌──────────────────────────────────────────────────────┐
+│  Podman Container Runtime                            │
+│                                                      │
+│  ubuntu  │  python-3.x  │  node-x                   │
+│  (pre-built images from /images)                     │
+└──────────────────────────────────────────────────────┘
 ```
 
 ---
@@ -408,22 +550,21 @@ podman build -t apex-venv/node-22 --build-arg NODE_VERSION=22 ./images/node/
 ```
 apex-venv/
 ├── cmd/
-│   ├── apex-venv/          # CLI binary
+│   ├── apex-venv/              # CLI binary
 │   │   └── main.go
-│   └── apex-mcp/           # MCP server binary
+│   └── apex-mcp/               # MCP server binary
 │       └── main.go
-├── sandbox/                # Go SDK
-│   ├── sandbox.go          # Sandbox interface & types
-│   ├── config.go           # Configuration types
-│   └── podman.go           # Podman provider implementation
-├── images/                 # Pre-built container images
-│   ├── ubuntu/
-│   │   └── Dockerfile
-│   ├── python/
-│   │   └── Dockerfile      # Python 3.11 / 3.12 (via build arg)
-│   └── node/
-│       └── Dockerfile      # Node.js 18 / 20 / 22 (via build arg)
+├── sandbox/                    # Go SDK
+│   ├── sandbox.go              # Interfaces & types (Sandbox, Provider, OutputHandler)
+│   ├── config.go               # Config & Mount types (includes Timeout)
+│   ├── podman.go               # Podman provider (Exec, ExecStream, lifecycle)
+│   └── timeout.go              # TimeoutManager (auto-cleanup scheduler)
+├── images/                     # Container image definitions
+│   ├── ubuntu/Dockerfile
+│   ├── python/Dockerfile       # Python 3.11 / 3.12 via build arg
+│   └── node/Dockerfile         # Node.js 18 / 20 / 22 via build arg
 ├── go.mod
+├── go.sum
 └── README.md
 ```
 
@@ -432,15 +573,29 @@ apex-venv/
 ## Roadmap
 
 - [x] Core sandbox interface + Podman provider
-- [x] Ubuntu base image
-- [x] CLI with interactive mode
-- [x] Python image (3.11, 3.12)
-- [x] Node.js image (18, 20, 22)
-- [x] Repo cloning support
-- [x] MCP tool definitions for agent integration
-- [ ] Streaming command output
-- [ ] Sandbox timeout / auto-cleanup
-- [ ] Image registry (ghcr.io)
+- [x] Ubuntu, Python, and Node.js container images
+- [x] CLI with interactive mode and color-coded output
+- [x] Git repository cloning support
+- [x] MCP tool definitions for AI agent integration
+- [x] Streaming command output (`ExecStream`)
+- [x] Sandbox timeout / auto-cleanup (`TimeoutManager`)
+- [ ] Image registry (publish to ghcr.io)
+- [ ] Snapshot / restore sandbox state
+- [ ] Multi-provider support (Docker, containerd)
+
+---
+
+## Contributing
+
+Contributions are welcome! To get started:
+
+1. Fork the repository
+2. Create a feature branch (`git checkout -b feature/my-feature`)
+3. Make your changes and ensure they build (`go build ./...`)
+4. Run `go vet ./...` to check for issues
+5. Commit your changes (`git commit -m 'feat: add my feature'`)
+6. Push to the branch (`git push origin feature/my-feature`)
+7. Open a Pull Request
 
 ---
 

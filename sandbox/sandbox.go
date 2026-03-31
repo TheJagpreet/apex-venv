@@ -5,6 +5,10 @@ import (
 	"io"
 )
 
+// OutputHandler is a callback invoked when streaming output is available.
+// stream is either "stdout" or "stderr", and data is a line of output.
+type OutputHandler func(stream string, data []byte)
+
 // Sandbox represents an isolated container environment.
 type Sandbox interface {
 	// ID returns the unique container ID for this sandbox.
@@ -12,6 +16,10 @@ type Sandbox interface {
 
 	// Exec runs a command inside the sandbox and returns the result.
 	Exec(ctx context.Context, cmd Command) (*ExecResult, error)
+
+	// ExecStream runs a command inside the sandbox and streams output
+	// line-by-line to the provided handler. It returns the exit code.
+	ExecStream(ctx context.Context, cmd Command, handler OutputHandler) (int, error)
 
 	// CopyTo copies a file or directory from the host into the sandbox.
 	CopyTo(ctx context.Context, hostPath, containerPath string) error

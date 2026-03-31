@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"log"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/apex-venv/apex-venv/sandbox"
 	"github.com/mark3labs/mcp-go/mcp"
@@ -63,6 +65,9 @@ func registerTools(s *server.MCPServer, provider sandbox.Provider) {
 			mcp.WithArray("mounts",
 				mcp.Description("Bind mounts in the format source:target or source:target:ro"),
 				mcp.WithStringItems(),
+			),
+			mcp.WithString("timeout",
+				mcp.Description("Maximum sandbox lifetime (e.g. 30m, 2h, 1h30m). Sandbox is auto-destroyed after this duration. Empty means no timeout."),
 			),
 		),
 		handleCreateSandbox(provider),
@@ -165,6 +170,29 @@ func registerTools(s *server.MCPServer, provider sandbox.Provider) {
 		),
 		handleCopyFromSandbox(provider),
 	)
+
+	// --- exec_command_stream ---
+	s.AddTool(
+		mcp.NewTool("exec_command_stream",
+			mcp.WithDescription("Execute a command inside a sandbox container with streaming output. Returns interleaved stdout/stderr lines as they are produced."),
+			mcp.WithString("sandbox_id",
+				mcp.Required(),
+				mcp.Description("The sandbox container ID or name"),
+			),
+			mcp.WithString("command",
+				mcp.Required(),
+				mcp.Description("The command to execute (e.g. bash -c 'echo hello')"),
+			),
+			mcp.WithString("workdir",
+				mcp.Description("Working directory for the command inside the container"),
+			),
+			mcp.WithArray("env",
+				mcp.Description("Environment variables as KEY=VALUE strings for this command"),
+				mcp.WithStringItems(),
+			),
+		),
+		handleExecCommandStream(provider),
+	)
 }
 
 // --- Tool Handlers ---
@@ -186,6 +214,14 @@ func handleCreateSandbox(provider sandbox.Provider) server.ToolHandlerFunc {
 			Env:     req.GetStringSlice("env", nil),
 		}
 
+		if timeoutStr := req.GetString("timeout", ""); timeoutStr != "" {
+			d, parseErr := time.ParseDuration(timeoutStr)
+			if parseErr != nil {
+				return mcp.NewToolResultError(fmt.Sprintf("invalid timeout %q: %v", timeoutStr, parseErr)), nil
+			}
+			cfg.Timeout = d
+		}
+
 		mountStrs := req.GetStringSlice("mounts", nil)
 		for _, ms := range mountStrs {
 			m, parseErr := parseMount(ms)
@@ -200,10 +236,15 @@ func handleCreateSandbox(provider sandbox.Provider) server.ToolHandlerFunc {
 			return mcp.NewToolResultError(fmt.Sprintf("failed to create sandbox: %v", err)), nil
 		}
 
-		return jsonResult(map[string]string{
+		result := map[string]string{
 			"sandbox_id": sb.ID(),
 			"status":     "created",
-		})
+		}
+		if cfg.Timeout > 0 {
+			result["timeout"] = cfg.Timeout.String()
+		}
+
+		return jsonResult(result)
 	}
 }
 
@@ -376,6 +417,58 @@ func handleCopyFromSandbox(provider sandbox.Provider) server.ToolHandlerFunc {
 			"status":         "copied",
 			"container_path": containerPath,
 			"host_path":      hostPath,
+		})
+	}
+}
+
+func handleExecCommandStream(provider sandbox.Provider) server.ToolHandlerFunc {
+	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		id, err := req.RequireString("sandbox_id")
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+		rawCmd, err := req.RequireString("command")
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+
+		sb, err := provider.Get(ctx, id)
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("sandbox not found: %v", err)), nil
+		}
+
+		cmd := sandbox.Command{
+			Cmd:  "sh",
+			Args: []string{"-c", rawCmd},
+			Dir:  req.GetString("workdir", ""),
+			Env:  req.GetStringSlice("env", nil),
+		}
+
+		type streamLine struct {
+			Stream string `json:"stream"`
+			Data   string `json:"data"`
+		}
+
+		var mu sync.Mutex
+		var lines []streamLine
+
+		handler := func(stream string, data []byte) {
+			mu.Lock()
+			lines = append(lines, streamLine{
+				Stream: stream,
+				Data:   string(data),
+			})
+			mu.Unlock()
+		}
+
+		exitCode, err := sb.ExecStream(ctx, cmd, handler)
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("exec failed: %v", err)), nil
+		}
+
+		return jsonResult(map[string]any{
+			"exit_code": exitCode,
+			"output":    lines,
 		})
 	}
 }
